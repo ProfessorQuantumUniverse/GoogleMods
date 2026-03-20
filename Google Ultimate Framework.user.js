@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Google Ultimate Framework V4
-// @namespace    http://tampermonkey.net/
+// @namespace    https://github.com/ProfessorQuantumUniverse/GoogleMods/
 // @version      4.0
 // @description  Ein robustes, modulares Framework für Google-Mods mit Searchbar, Toast-Benachrichtigungen, Tastenkürzel und Settings.
 // @author       ProfessorQuantumUniverse

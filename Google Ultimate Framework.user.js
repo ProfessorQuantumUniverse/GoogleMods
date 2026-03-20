@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Google Ultimate Framework V3
+// @name         Google Ultimate Framework V4
 // @namespace    http://tampermonkey.net/
-// @version      3.0
-// @description  Ein robustes, modulares Framework für Google-Mods mit Searchbar und Mod-Settings.
-// @author       You / AI
+// @version      4.0
+// @description  Ein robustes, modulares Framework für Google-Mods mit Searchbar, Toast-Benachrichtigungen, Tastenkürzel und Settings.
+// @author       ProfessorQuantumUniverse
 // @match        *://*.google.com/*
 // @match        *://*.google.de/*
 // @match        *://*.google.ch/*
@@ -45,9 +45,10 @@
         constructor(modId) {
             this.modId = modId;
             this.intervals = [];
-            this.timeouts =[];
+            this.timeouts = [];
             this.listeners = [];
-            this.styles =[];
+            this.styles = [];
+            this.elements = []; // Für ctx.createElement() erzeugte DOM-Elemente
         }
 
         // Führt einen Intervall aus und merkt ihn sich
@@ -65,26 +66,38 @@
         }
 
         // Hängt einen Event-Listener an und merkt ihn sich
-        addEventListener(target, event, fn) {
-            target.addEventListener(event, fn);
-            this.listeners.push({ target, event, fn });
+        // options: optionaler vierter Parameter (z.B. { passive: false } für wheel-Events)
+        addEventListener(target, event, fn, options) {
+            const opts = options !== undefined ? options : false;
+            target.addEventListener(event, fn, opts);
+            this.listeners.push({ target, event, fn, opts });
         }
 
-        // Injiziert CSS ins Dokument (wirkt auf den Body) und merkt es sich
+        // Injiziert CSS ins Dokument und merkt es sich
         addStyle(cssString) {
             const style = document.createElement('style');
-            style.id = `gmod-style-${this.modId}`;
+            style.id = `gmod-style-${this.modId}-${this.styles.length}`;
             style.innerHTML = cssString;
             document.head.appendChild(style);
             this.styles.push(style);
+        }
+
+        // Erstellt ein DOM-Element, hängt es an parent an und verfolgt es für das Cleanup
+        createElement(tag, parent) {
+            const el = document.createElement(tag);
+            const target = parent || document.body;
+            target.appendChild(el);
+            this.elements.push(el);
+            return el;
         }
 
         // Räumt rigoros alles ab, was die Mod gestartet hat
         cleanup() {
             this.intervals.forEach(clearInterval);
             this.timeouts.forEach(clearTimeout);
-            this.listeners.forEach(l => l.target.removeEventListener(l.event, l.fn));
+            this.listeners.forEach(l => l.target.removeEventListener(l.event, l.fn, l.opts));
             this.styles.forEach(s => s.remove());
+            this.elements.forEach(el => el.remove());
 
             // Inline-Styles vom Body putzen, falls die Mod sie verändert hat
             document.body.style.transform = '';
@@ -99,6 +112,7 @@
     const ModManager = {
         registry: new Map(), // Speichert alle Mod-Definitionen
         activeContexts: new Map(), // Speichert die aktiven Contexts der laufenden Mods
+        _onToggle: null, // UI-Callback: wird nach jedem Toggle aufgerufen
 
         // Registriert eine neue Mod im System
         register(modDef) {
@@ -150,6 +164,9 @@
                 this.activeContexts.delete(modId);
             }
             saveState();
+
+            // UI benachrichtigen (z.B. Badge aktualisieren, Toast anzeigen)
+            if (this._onToggle) this._onToggle(modId, state.activeMods.includes(modId), mod);
         },
 
         // Wird aufgerufen, wenn ein User über das UI ein Setting der Mod ändert
@@ -574,6 +591,350 @@ dP   dP   dP `88888P' `88888P8 `88888P'    `88888P8 `88888P' 8888P Y8P  dP    dP
             `);
         }
     });
+
+    // ── OPTIK & DESIGN ────────────────────────────────────────────────────────
+
+    // 19. NIGHT LIGHT
+    ModManager.register({
+        id: 'nightLight',
+        name: 'Night Light',
+        category: 'Optik & Design',
+        description: 'Legt einen warmen Gelbfilter über die Seite. Schont die Augen bei Nacht.',
+        type: 'toggle',
+        settingsSchema: [
+            { id: 'warmth', label: 'Wärme', type: 'range', min: 1, max: 10, default: 5 }
+        ],
+        enable: (ctx, settings) => {
+            const s = parseInt(settings.warmth);
+            ctx.addStyle(`html { filter: sepia(${s * 0.05}) saturate(1.1) brightness(${1 - s * 0.015}) !important; }`);
+        }
+    });
+
+    // 20. GROSSSCHRIFT
+    ModManager.register({
+        id: 'bigText',
+        name: 'Grossschrift',
+        category: 'Optik & Design',
+        description: 'Vergrössert alle Schriften auf der Seite – nützlich bei kleinen Bildschirmen.',
+        type: 'toggle',
+        settingsSchema: [
+            { id: 'scale', label: 'Schriftgrösse (%)', type: 'range', min: 110, max: 200, default: 140 }
+        ],
+        enable: (ctx, settings) => {
+            ctx.addStyle(`html { font-size: ${settings.scale}% !important; }`);
+        }
+    });
+
+    // 21. SLOW MOTION
+    ModManager.register({
+        id: 'slowMotion',
+        name: 'Slow Motion',
+        category: 'Optik & Design',
+        description: 'Verlangsamt alle CSS-Animationen und Übergänge auf der Seite drastisch.',
+        type: 'toggle',
+        settingsSchema: [
+            { id: 'factor', label: 'Verlangsamungs-Faktor', type: 'range', min: 2, max: 20, default: 5 }
+        ],
+        enable: (ctx, settings) => {
+            const f = parseInt(settings.factor);
+            ctx.addStyle(`
+                *, *::before, *::after {
+                    animation-duration: ${f * 500}ms !important;
+                    animation-delay: 0ms !important;
+                    transition-duration: ${f * 200}ms !important;
+                }
+                #g-mods-container, #g-mods-container * {
+                    animation-duration: initial !important;
+                    transition-duration: initial !important;
+                }
+            `);
+        }
+    });
+
+    // ── NÜTZLICH ──────────────────────────────────────────────────────────────
+
+    // 22. LESE-MODUS
+    ModManager.register({
+        id: 'readingMode',
+        name: 'Lese-Modus',
+        category: 'Nützlich',
+        description: 'Blendet Werbung, Sidebars und Ablenkungen aus. Zentriert den Inhalt auf 750 Pixel.',
+        type: 'toggle',
+        enable: (ctx) => {
+            ctx.addStyle(`
+                #rhs, #tads, .ads-ad, [data-text-ad], .commercial-unit-desktop-rhs,
+                #bottomads, .TBC8ub, .u3A9Ac { display: none !important; }
+                #main, #center_col, #rcnt { max-width: 750px !important; margin: 0 auto !important; float: none !important; }
+                body { background: #f5f5f0 !important; }
+            `);
+        }
+    });
+
+    // 23. SCROLL-TEMPO
+    ModManager.register({
+        id: 'scrollEnhancer',
+        name: 'Scroll-Tempo',
+        category: 'Nützlich',
+        description: 'Stellt die Scrollgeschwindigkeit der Mausrolle individuell ein.',
+        type: 'toggle',
+        settingsSchema: [
+            { id: 'multiplier', label: 'Geschwindigkeit (Vielfaches)', type: 'range', min: 1, max: 8, default: 3 }
+        ],
+        enable: (ctx, settings) => {
+            const handler = (e) => {
+                e.preventDefault();
+                window.scrollBy({ top: e.deltaY * parseInt(settings.multiplier), behavior: 'auto' });
+            };
+            ctx.addEventListener(document, 'wheel', handler, { passive: false });
+        }
+    });
+
+    // 24. EIGENES CSS
+    ModManager.register({
+        id: 'customCSS',
+        name: 'Eigenes CSS',
+        category: 'Nützlich',
+        description: 'Injiziert beliebiges CSS in die Seite. Für fortgeschrittene Nutzer.',
+        type: 'toggle',
+        settingsSchema: [
+            { id: 'css', label: 'CSS-Code', type: 'textarea', default: '/* body { background: #1a1a2e !important; } */' }
+        ],
+        enable: (ctx, settings) => {
+            const code = (settings.css || '').trim();
+            if (code) ctx.addStyle(code);
+        }
+    });
+
+    // ── NERD ──────────────────────────────────────────────────────────────────
+
+    // 25. FPS-ZÄHLER
+    ModManager.register({
+        id: 'fpsCounter',
+        name: 'FPS-Zähler',
+        category: 'Nerd',
+        description: 'Zeigt die aktuelle Bildwiederholrate (FPS) des Browsers live in der Ecke an.',
+        type: 'toggle',
+        enable: (ctx) => {
+            const display = ctx.createElement('div', document.documentElement);
+            Object.assign(display.style, {
+                position: 'fixed', top: '10px', left: '10px', background: 'rgba(0,0,0,0.8)',
+                color: '#00ff00', fontFamily: 'monospace', fontSize: '14px', fontWeight: 'bold',
+                padding: '5px 10px', borderRadius: '5px', zIndex: '9999998',
+                pointerEvents: 'none', userSelect: 'none'
+            });
+            let frames = 0, active = true;
+            const tick = () => { if (!active) return; frames++; requestAnimationFrame(tick); };
+            requestAnimationFrame(tick);
+            ctx.setInterval(() => { display.textContent = `${frames} FPS`; frames = 0; }, 1000);
+            ctx._stopFPS = () => { active = false; };
+        },
+        disable: (ctx) => { if (ctx._stopFPS) ctx._stopFPS(); }
+    });
+
+    // 26. COOKIE-INSPEKTOR
+    ModManager.register({
+        id: 'cookiePeek',
+        name: 'Cookie-Inspektor',
+        category: 'Nerd',
+        description: 'Zeigt alle Cookies dieser Seite als Tabelle in der Browserkonsole an.',
+        type: 'action',
+        execute: () => {
+            const raw = document.cookie;
+            const cookies = raw ? raw.split('; ').map(c => {
+                const idx = c.indexOf('=');
+                return { Name: c.slice(0, idx), Wert: c.slice(idx + 1, idx + 61) + (c.length > idx + 61 ? '…' : '') };
+            }) : [];
+            if (!cookies.length) { alert('Keine Cookies auf dieser Seite vorhanden.'); return; }
+            console.log('%c Cookie-Inspektor ', 'background:#4285F4;color:white;font-size:18px;padding:4px;border-radius:4px;');
+            console.table(cookies);
+            alert(`${cookies.length} Cookie(s) gefunden. Details in der Konsole (F12 → Console).`);
+        }
+    });
+
+    // 27. X-RAY MODUS
+    ModManager.register({
+        id: 'xrayMode',
+        name: 'X-Ray Modus',
+        category: 'Nerd',
+        description: 'Zeichnet farbige Umrandungen um alle DOM-Elemente. Ideal für Layout-Debugging.',
+        type: 'toggle',
+        enable: (ctx) => {
+            ctx.addStyle(`
+                * { outline: 1px dashed rgba(255,0,0,0.5) !important; }
+                * * { outline-color: rgba(0,200,0,0.5) !important; }
+                * * * { outline-color: rgba(30,144,255,0.6) !important; }
+                * * * * { outline-color: rgba(255,165,0,0.5) !important; }
+                * * * * * { outline-color: rgba(180,0,255,0.5) !important; }
+                #g-mods-container, #g-mods-container * { outline: none !important; }
+            `);
+        }
+    });
+
+    // 28. TASTEN-ANZEIGE
+    ModManager.register({
+        id: 'keyVisualizer',
+        name: 'Tasten-Anzeige',
+        category: 'Nerd',
+        description: 'Zeigt jeden Tastendruck gross in der Bildschirmmitte an.',
+        type: 'toggle',
+        enable: (ctx) => {
+            const display = ctx.createElement('div', document.documentElement);
+            Object.assign(display.style, {
+                position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+                background: 'rgba(0,0,0,0.78)', color: '#fff', fontFamily: 'monospace',
+                fontSize: '52px', fontWeight: 'bold', padding: '18px 28px', borderRadius: '12px',
+                zIndex: '9999998', pointerEvents: 'none', opacity: '0',
+                transition: 'opacity 0.15s ease', minWidth: '80px', textAlign: 'center',
+                boxShadow: '0 6px 30px rgba(0,0,0,0.6)'
+            });
+            let hideTimer = null;
+            ctx.addEventListener(document, 'keydown', (e) => {
+                if (e.key === 'Escape') return;
+                display.textContent = e.key.length === 1 ? e.key : `[${e.key}]`;
+                display.style.opacity = '1';
+                if (hideTimer) clearTimeout(hideTimer);
+                hideTimer = setTimeout(() => { display.style.opacity = '0'; }, 900);
+            });
+        }
+    });
+
+    // ── SPASS & MEMES ─────────────────────────────────────────────────────────
+
+    // 29. AUF DEM KOPF
+    ModManager.register({
+        id: 'flipped',
+        name: 'Auf dem Kopf',
+        category: 'Spaß & Memes',
+        description: 'Dreht die gesamte Seite auf den Kopf. Für echte Hartgesottene.',
+        type: 'toggle',
+        enable: (ctx) => {
+            ctx.addStyle(`
+                html { transform: rotate(180deg) !important; transform-origin: center center !important; }
+                #g-mods-container { transform: rotate(180deg) !important; }
+            `);
+        }
+    });
+
+    // 30. SCHNEEFALL
+    ModManager.register({
+        id: 'snowfall',
+        name: 'Schneefall',
+        category: 'Spaß & Memes',
+        description: 'Lässt sanft Schneeflocken über die Seite fallen.',
+        type: 'toggle',
+        settingsSchema: [
+            { id: 'amount', label: 'Schneemenge', type: 'range', min: 20, max: 200, default: 80 }
+        ],
+        enable: (ctx, settings) => {
+            const container = ctx.createElement('div', document.documentElement);
+            container.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:999998;overflow:hidden;';
+            ctx.addStyle(`
+                @keyframes gSnowFall {
+                    0%   { transform: translateY(-12px) translateX(0); opacity: 0.9; }
+                    100% { transform: translateY(102vh) translateX(var(--drift,0px)); opacity: 0.2; }
+                }
+                .g-snowflake {
+                    position: absolute; top: -12px; border-radius: 50%;
+                    background: white; pointer-events: none;
+                    animation: gSnowFall linear infinite;
+                }
+            `);
+            for (let i = 0; i < parseInt(settings.amount); i++) {
+                const flake = document.createElement('div');
+                flake.className = 'g-snowflake';
+                const size = 3 + Math.random() * 5;
+                const drift = (Math.random() - 0.5) * 140;
+                flake.style.cssText = `
+                    left:${Math.random() * 100}%;
+                    width:${size}px; height:${size}px;
+                    opacity:${0.4 + Math.random() * 0.6};
+                    animation-duration:${4 + Math.random() * 7}s;
+                    animation-delay:${-Math.random() * 10}s;
+                    --drift:${drift}px;
+                `;
+                container.appendChild(flake);
+            }
+        }
+    });
+
+    // 31. FEUERWERK
+    ModManager.register({
+        id: 'fireworks',
+        name: 'Feuerwerk',
+        category: 'Spaß & Memes',
+        description: 'Jeder Klick auf die Seite zündet ein buntes Feuerwerk.',
+        type: 'toggle',
+        settingsSchema: [
+            { id: 'sparks', label: 'Funken pro Klick', type: 'range', min: 10, max: 60, default: 30 }
+        ],
+        enable: (ctx, settings) => {
+            const colors = ['#FF5733','#FFC300','#DAF7A6','#C70039','#9B59B6','#3498DB','#2ECC71','#FF69B4'];
+            ctx.addEventListener(window, 'click', (e) => {
+                const count = parseInt(settings.sparks);
+                for (let i = 0; i < count; i++) {
+                    const spark = document.createElement('div');
+                    const angle = (Math.PI * 2 / count) * i;
+                    const speed = 70 + Math.random() * 130;
+                    Object.assign(spark.style, {
+                        position: 'fixed', left: e.clientX + 'px', top: e.clientY + 'px',
+                        width: '5px', height: '5px', borderRadius: '50%',
+                        background: colors[Math.floor(Math.random() * colors.length)],
+                        pointerEvents: 'none', zIndex: '999999',
+                        transform: 'translate(-50%,-50%)'
+                    });
+                    document.body.appendChild(spark);
+                    const dx = Math.cos(angle) * speed;
+                    const dy = Math.sin(angle) * speed;
+                    spark.animate([
+                        { transform: 'translate(-50%,-50%) scale(1)', opacity: 1 },
+                        { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(0)`, opacity: 0 }
+                    ], { duration: 550 + Math.random() * 400, easing: 'cubic-bezier(0,.9,.57,1)' });
+                    ctx.setTimeout(() => spark.remove(), 1000);
+                }
+            });
+        }
+    });
+
+    // ── CHAOS & ZERSTÖRUNG ────────────────────────────────────────────────────
+
+    // 32. ZOOM-PULS
+    ModManager.register({
+        id: 'zoomPulse',
+        name: 'Zoom-Puls',
+        category: 'Chaos & Zerstörung',
+        description: 'Lässt die Seite rhythmisch ein- und auszoomen.',
+        type: 'toggle',
+        settingsSchema: [
+            { id: 'speed', label: 'Puls-Geschwindigkeit', type: 'range', min: 1, max: 10, default: 3 }
+        ],
+        enable: (ctx, settings) => {
+            const dur = Math.max(300, 1200 - parseInt(settings.speed) * 100);
+            ctx.addStyle(`
+                @keyframes gZoomPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+                body { animation: gZoomPulse ${dur}ms ease-in-out infinite !important; transform-origin: center top !important; }
+            `);
+        }
+    });
+
+    // 33. CURSOR-CHAOS
+    ModManager.register({
+        id: 'cursorChaos',
+        name: 'Cursor-Chaos',
+        category: 'Chaos & Zerstörung',
+        description: 'Jedes Element bekommt beim Hovern einen anderen, zufälligen Maus-Cursor zugewiesen.',
+        type: 'toggle',
+        enable: (ctx) => {
+            const cursors = ['crosshair','wait','grab','zoom-in','zoom-out','not-allowed','cell','copy','move','help','progress','alias','context-menu','vertical-text'];
+            let idx = 0;
+            ctx.addEventListener(document.body, 'mouseover', (e) => {
+                e.target.style.cursor = cursors[idx % cursors.length];
+                idx++;
+            });
+        },
+        disable: () => {
+            document.querySelectorAll('*').forEach(el => { if (el.style.cursor) el.style.cursor = ''; });
+        }
+    });
 /*
  ██████   ██████    ███████    ██████████    █████████     ██████████ ██████   █████ ██████████
 ░░██████ ██████   ███░░░░░███ ░░███░░░░███  ███░░░░░███   ░░███░░░░░█░░██████ ░░███ ░░███░░░░███
@@ -647,6 +1008,23 @@ dP   dP   dP `88888P' `88888P8 `88888P'    `88888P8 `88888P' 8888P Y8P  dP    dP
         .setting-row label { font-size: 11px; color: #ccc; margin-bottom: 5px; display: flex; justify-content: space-between;}
         .setting-row input[type=range] { width: 100%; accent-color: #4285F4; }
         .setting-row input[type=color] { width: 100%; height: 30px; border: none; cursor: pointer; border-radius: 4px; }
+        .setting-row textarea {
+            width: 100%; box-sizing: border-box; resize: vertical; background: #111; color: #ccc;
+            border: 1px solid #555; border-radius: 4px; padding: 6px; font-family: monospace;
+            font-size: 11px; min-height: 70px;
+        }
+        .setting-row textarea:focus { border-color: #4285F4; outline: none; }
+
+        /* Toast-Benachrichtigungen */
+        .g-toast {
+            position: fixed; bottom: 85px; right: 20px; padding: 10px 16px;
+            border-radius: 8px; font-family: Arial, sans-serif; font-size: 13px;
+            font-weight: bold; color: #fff; z-index: 99999999; opacity: 0;
+            transform: translateY(8px); pointer-events: none;
+            transition: opacity 0.25s ease, transform 0.25s ease;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.45); max-width: 260px; line-height: 1.4;
+        }
+        .g-toast.show { opacity: 1; transform: translateY(0); }
     `;
 
     // UI Initialisierung
@@ -660,12 +1038,12 @@ dP   dP   dP `88888P' `88888P8 `88888P'    `88888P8 `88888P' 8888P Y8P  dP    dP
         container.innerHTML = `
             <div id="g-mods-panel">
                 <div id="g-mods-header">
-                    <h2>🧪 G-Mods Framework V3</h2>
-                    <input type="text" id="g-mods-search" placeholder="🔍 Suche nach Mods...">
+                    <h2>G-Mods Framework V4</h2>
+                    <input type="text" id="g-mods-search" placeholder="Mod suchen...">
                 </div>
                 <div id="g-mods-content"></div>
             </div>
-            <button id="g-mods-toggle">⚙️ G-Mods</button>
+            <button id="g-mods-toggle">G-Mods</button>
         `;
         document.documentElement.appendChild(container);
 
@@ -679,6 +1057,42 @@ dP   dP   dP `88888P' `88888P8 `88888P'    `88888P8 `88888P' 8888P Y8P  dP    dP
             panel.style.display = panel.style.display === 'flex' ? 'none' : 'flex';
             if (panel.style.display === 'flex') searchBar.focus();
         });
+
+        // Escape-Taste schliesst das Panel
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && panel.style.display === 'flex') panel.style.display = 'none';
+        });
+
+        // Toast-Benachrichtigung anzeigen
+        const showToast = (msg, type) => {
+            const bgMap = { success: '#34A853', info: '#4285F4', warn: '#FBBC05', error: '#EA4335' };
+            const t = document.createElement('div');
+            t.className = 'g-toast';
+            t.textContent = msg;
+            t.style.background = bgMap[type] || bgMap.info;
+            document.documentElement.appendChild(t);
+            requestAnimationFrame(() => { requestAnimationFrame(() => { t.classList.add('show'); }); });
+            setTimeout(() => {
+                t.classList.remove('show');
+                setTimeout(() => t.remove(), 300);
+            }, 2400);
+        };
+
+        // Aktive-Mod-Anzeige im Toggle-Button
+        const updateBadge = () => {
+            const count = state.activeMods.length;
+            toggleBtn.textContent = count > 0 ? `G-Mods [${count}]` : 'G-Mods';
+            toggleBtn.style.background = count > 0 ? '#34A853' : '#4285F4';
+        };
+        updateBadge();
+
+        // ModManager-Callback: UI nach jedem Toggle aktualisieren
+        ModManager._onToggle = (modId, isNowOn, mod) => {
+            if (mod && mod.type === 'toggle') {
+                showToast(isNowOn ? `${mod.name} aktiviert` : `${mod.name} deaktiviert`, isNowOn ? 'success' : 'info');
+            }
+            updateBadge();
+        };
 
         // Generiere UI-Liste aus der Mod-Registry
         const categories = {};
@@ -733,6 +1147,9 @@ dP   dP   dP `88888P' `88888P8 `88888P'    `88888P8 `88888P' 8888P Y8P  dP    dP
                         inputHtml = `<input type="range" min="${schema.min}" max="${schema.max}" value="${currentValue}">`;
                     } else if (schema.type === 'color') {
                         inputHtml = `<input type="color" value="${currentValue}">`;
+                    } else if (schema.type === 'textarea') {
+                        const escaped = String(currentValue).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        inputHtml = `<textarea rows="4">${escaped}</textarea>`;
                     }
 
                     row.innerHTML = `
@@ -741,7 +1158,7 @@ dP   dP   dP `88888P' `88888P8 `88888P'    `88888P8 `88888P' 8888P Y8P  dP    dP
                     `;
 
                     // Live Update Event
-                    const input = row.querySelector('input');
+                    const input = row.querySelector('input, textarea');
                     const display = row.querySelector('.val-display');
                     input.addEventListener('input', (e) => {
                         const val = e.target.value;

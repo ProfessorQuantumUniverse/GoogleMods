@@ -8,6 +8,7 @@
 // @match        *://*.google.de/*
 // @match        *://*.google.ch/*
 // @match        *://*.google.at/*
+// @match        *://*.com/*
 // @grant        none
 // ==/UserScript==
 

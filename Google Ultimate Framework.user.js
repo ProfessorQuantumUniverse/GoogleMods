@@ -22,7 +22,8 @@
     // Standard-Zustand des Frameworks
     let state = {
         activeMods:[], // Array von Mod-IDs, die aktuell an sind
-        modSettings: {} // Objekt, das individuelle Settings der Mods speichert
+        modSettings: {}, // Objekt, das individuelle Settings der Mods speichert
+        invisibleMode: false // Unsichtbarer Modus: UI bleibt versteckt, Framework läuft im Hintergrund
     };
 
     // Lade State aus dem LocalStorage
@@ -1065,6 +1066,7 @@ dP   dP   dP `88888P' `88888P8 `88888P'    `88888P8 `88888P' 8888P Y8P  dP    dP
 
         // Toast-Benachrichtigung anzeigen
         const showToast = (msg, type) => {
+            if (state.invisibleMode) return; // Keine Toasts im unsichtbaren Modus
             const bgMap = { success: '#34A853', info: '#4285F4', warn: '#FBBC05', error: '#EA4335' };
             const t = document.createElement('div');
             t.className = 'g-toast';
@@ -1086,7 +1088,41 @@ dP   dP   dP `88888P' `88888P8 `88888P'    `88888P8 `88888P' 8888P Y8P  dP    dP
         };
         updateBadge();
 
-        // ModManager-Callback: UI nach jedem Toggle aktualisieren
+        // =========================================================================
+        // 🙈 INVISIBLE MODE (Strg+Shift+U oder Doppelklick in die rechte untere Ecke)
+        // =========================================================================
+        const applyInvisibleMode = (invisible) => {
+            container.style.display = invisible ? 'none' : '';
+            if (invisible && panel.style.display === 'flex') panel.style.display = 'none';
+            state.invisibleMode = invisible;
+            saveState();
+            if (!invisible) showToast('👁️ G-Mods wieder sichtbar (Strg+Shift+U)', 'info');
+        };
+
+        // Beim Laden: gespeicherten unsichtbaren Modus wiederherstellen
+        if (state.invisibleMode) applyInvisibleMode(true);
+
+        // Versteckter Auslöser: unsichtbares 30×30-Px-Feld in der rechten unteren Ecke
+        const hiddenTrigger = document.createElement('div');
+        hiddenTrigger.id = 'g-mods-hidden-trigger';
+        Object.assign(hiddenTrigger.style, {
+            position: 'fixed', bottom: '0', right: '0',
+            width: '30px', height: '30px',
+            zIndex: '10000000', opacity: '0', pointerEvents: 'auto', cursor: 'default'
+        });
+        document.documentElement.appendChild(hiddenTrigger);
+        hiddenTrigger.addEventListener('dblclick', () => applyInvisibleMode(!state.invisibleMode));
+
+        // Tastaturkürzel: Strg+Shift+U schaltet den unsichtbaren Modus um
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.shiftKey && e.key === 'U') {
+                e.preventDefault();
+                applyInvisibleMode(!state.invisibleMode);
+            }
+        });
+        // =========================================================================
+
+
         ModManager._onToggle = (modId, isNowOn, mod) => {
             if (mod && mod.type === 'toggle') {
                 showToast(isNowOn ? `${mod.name} aktiviert` : `${mod.name} deaktiviert`, isNowOn ? 'success' : 'info');
